@@ -31,7 +31,7 @@ VIEWS = {"observer": "third-person observer", "third-person observer": "third-pe
 UNCHANGED = ("Compared to the previous segment, the visible scene, background, and other-object layout "
              "remain unchanged.")
 MIN_SEG, MAX_SEG = 1.0, 6.0
-MAX_FRAMES = 240  # 10 s at 24 fps: the only length that has completed (see gen_hynomas_world.py LENGTH CEILING)
+MAX_FRAMES = 480  # 20 s at 24 fps (TEST after the FlexAttention fix; 10 s proven at 78 s)
 
 
 def _perspective_sentence(view, name):
