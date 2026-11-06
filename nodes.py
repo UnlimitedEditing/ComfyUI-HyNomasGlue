@@ -58,7 +58,12 @@ class HyNomasGenerateWorldPlus:
             },
             "optional": {
                 "cameras": ("STRING", {"default": "[]", "forceInput": True}),
+                # The start picture can arrive three ways (the platform fills whichever its field mapping hits):
+                # image1 -> image_name, init_image_filename -> image_file (both files in the ComfyUI input
+                # folder) or init_image_url -> image_url (downloaded). First non-empty one that loads wins.
                 "image_name": ("STRING", {"default": ""}),
+                "image_url": ("STRING", {"default": ""}),
+                "image_file": ("STRING", {"default": ""}),
             },
         }
 
@@ -67,7 +72,8 @@ class HyNomasGenerateWorldPlus:
     FUNCTION = "run"
     CATEGORY = "Hy-Nomas"
 
-    def run(self, model, clip, script, width, height, world_seed, cameras="[]", image_name=""):
+    def run(self, model, clip, script, width, height, world_seed, cameras="[]", image_name="", image_url="",
+            image_file=""):
         import comfy.sample
         import folder_paths
         session = _hn_module("hy_nomas.session")
@@ -83,9 +89,10 @@ class HyNomasGenerateWorldPlus:
             paths.append(cam.CameraPath(cam.simulate_keys(cam.parse_timeline(tl)), 1.0, 2.5, tl) if tl else None)
 
         world = None
-        name = (image_name or "").strip()
-        if name:
-            world = self._start_from_image(model, clip, script, width, height, world_seed, name, folder_paths)
+        sources = [("image1", (image_name or "").strip()), ("init_image_filename", (image_file or "").strip()),
+                   ("init_image_url", (image_url or "").strip())]
+        if any(v for _, v in sources):
+            world = self._start_from_image(model, clip, script, width, height, world_seed, sources, folder_paths)
 
         first = len(world.records) if world is not None else 0
         for index in range(first, len(script)):
@@ -101,20 +108,37 @@ class HyNomasGenerateWorldPlus:
         return (world,)
 
     @staticmethod
-    def _start_from_image(model, clip, script, width, height, seed, name, folder_paths):
+    def _load_picture(sources, folder_paths):
+        import io
+        import urllib.request
+        from PIL import Image, ImageOps
+        errors = []
+        for label, value in sources:
+            if not value:
+                continue
+            try:
+                if label == "init_image_url" or value.lower().startswith(("http://", "https://")):
+                    req = urllib.request.Request(value, headers={"User-Agent": "Mozilla/5.0"})
+                    data = urllib.request.urlopen(req, timeout=60).read(60_000_000)
+                    img = Image.open(io.BytesIO(data))
+                else:
+                    img = Image.open(folder_paths.get_annotated_filepath(value))
+                print(f"[HyNomasGlue] start picture loaded from {label}", flush=True)
+                return ImageOps.exif_transpose(img).convert("RGB")
+            except Exception as e:
+                errors.append(f"{label}={value[:80]!r}: {e}")
+        raise ValueError("could not load the start picture: " + "; ".join(errors))
+
+    @staticmethod
+    def _start_from_image(model, clip, script, width, height, seed, sources, folder_paths):
         import numpy as np
         import torch
-        from PIL import Image, ImageOps
         session = _hn_module("hy_nomas.session")
         dcae = _hn_module("hy_nomas.dcae")
         if len(script) < 2:
             raise ValueError("a start picture needs at least 2 script segments: segment 0 describes the picture, "
                              "the rest are generated")
-        try:
-            path = folder_paths.get_annotated_filepath(name)
-            img = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
-        except Exception as e:
-            raise ValueError(f"could not load the start picture {name!r}: {e}")
+        img = HyNomasGenerateWorldPlus._load_picture(sources, folder_paths)
         image = torch.from_numpy(np.array(img).astype(np.float32) / 255.0)[None]
         files = [n for n in folder_paths.get_filename_list("vae") if "pixelumm" in n.lower()]
         if not files:
