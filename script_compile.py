@@ -31,6 +31,7 @@ VIEWS = {"observer": "third-person observer", "third-person observer": "third-pe
 UNCHANGED = ("Compared to the previous segment, the visible scene, background, and other-object layout "
              "remain unchanged.")
 MIN_SEG, MAX_SEG = 1.0, 6.0
+MAX_FRAMES = 240  # 10 s at 24 fps
 
 
 def _perspective_sentence(view, name):
@@ -116,6 +117,12 @@ def compile_script(text, length=0):
         if not look:
             raise ValueError("subject needs 'name = description'")
         attr = look.rstrip(".") + ". " + _perspective_sentence(view, name)
+
+    # Hard cap: only 10 s is proven to fit Graydient's ~180 s run budget (15 s / 20 s timed out in the decoder).
+    if (not length or length <= 0) and sum(d for d, _, _ in segs) * FPS > MAX_FRAMES:
+        length = MAX_FRAMES
+    elif length > MAX_FRAMES:
+        length = MAX_FRAMES
 
     # fit to the requested length (24 fps): trim, or extend with 'unchanged' continuation segments
     if length and length > 0:
