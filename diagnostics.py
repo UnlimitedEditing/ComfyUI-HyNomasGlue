@@ -40,6 +40,49 @@ def _wrap(mod, name, label):
     return True
 
 
+def _wrap_slow(mod, name, label, threshold=1.0):
+    """Like _wrap but only prints calls slower than `threshold` seconds (for hot functions)."""
+    fn = getattr(mod, name, None)
+    if fn is None or getattr(fn, "_hn_wrapped", False):
+        return False
+    count = [0]
+
+    def wrapper(*a, **k):
+        t = time.perf_counter()
+        try:
+            return fn(*a, **k)
+        finally:
+            count[0] += 1
+            dt = time.perf_counter() - t
+            if dt > threshold:
+                print(f"[HyNomasGlue] t={_now():6.1f}s {label} call #{count[0]} took {dt:.1f}s", flush=True)
+
+    wrapper._hn_wrapped = True
+    setattr(mod, name, wrapper)
+    return True
+
+
+def _persist_caches(vae_path):
+    """Point the Inductor and Triton caches at the persistent models folder so a machine that already compiled
+    the decoder's FlexAttention kernels can reuse them on the next job."""
+    import os
+    root = os.path.dirname(os.path.dirname(vae_path))
+    cache = os.path.join(root, "_hynomas_cache")
+    try:
+        os.makedirs(cache, exist_ok=True)
+        probe = os.path.join(cache, ".probe")
+        with open(probe, "w") as f:
+            f.write("x")
+        os.remove(probe)
+    except Exception as e:
+        print(f"[HyNomasGlue] cache dir {cache} not writable ({e}); caches stay ephemeral", flush=True)
+        return
+    n = sum(len(fs) for _, _, fs in os.walk(cache))
+    os.environ["TORCHINDUCTOR_CACHE_DIR"] = os.path.join(cache, "inductor")
+    os.environ["TRITON_CACHE_DIR"] = os.path.join(cache, "triton")
+    print(f"[HyNomasGlue] persistent compile caches at {cache} ({n} files already there)", flush=True)
+
+
 def _prefetch(path):
     t = time.perf_counter()
     n = 0
@@ -71,8 +114,12 @@ def start():
         if mod is None:
             continue
         if name.endswith("hy_nomas.pixelumm"):
-            for fn in ("load_state_dict", "decode", "decode_clip"):
+            for fn in ("load_state_dict", "decode", "decode_clip", "local_attention_layout"):
                 wrapped += _wrap(mod, fn, "pixelumm." + fn)
+            wrapped += _wrap_slow(mod, "_flex_attention", "pixelumm.flex_attention", 1.0)
+            blender = getattr(mod, "TemporalBlender", None)
+            if blender is not None:
+                wrapped += _wrap(blender, "add", "pixelumm.window_done")
         elif name.endswith("hy_nomas.loader"):
             wrapped += _wrap(mod, "load_dit", "loader.load_dit")
         elif name.endswith("hy_nomas.session"):
@@ -84,6 +131,7 @@ def start():
         names = [n for n in folder_paths.get_filename_list("vae") if "pixelumm" in n.lower()]
         if names:
             path = folder_paths.get_full_path("vae", names[0])
+            _persist_caches(path)
             threading.Thread(target=_prefetch, args=(path,), daemon=True).start()
             print(f"[HyNomasGlue] prefetching {names[0]} in the background", flush=True)
     except Exception as e:
