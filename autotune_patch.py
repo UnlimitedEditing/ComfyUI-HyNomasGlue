@@ -18,6 +18,14 @@ def apply():
     except Exception as e:  # pragma: no cover
         print(f"[HyNomasGlue] triton not importable, autotune patch skipped: {e}")
         return 0
+    # hy_nomas/kernels.py is imported lazily (inside the first linear), so import it now. The package is
+    # registered under whatever name ComfyUI gave the custom node folder; find it by suffix.
+    import importlib
+    for name in [n for n in list(sys.modules) if n == "hy_nomas" or n.endswith(".hy_nomas")]:
+        try:
+            importlib.import_module(name + ".kernels")
+        except Exception as e:
+            print(f"[HyNomasGlue] could not import {name}.kernels: {e}")
     pinned = 0
     for name, mod in list(sys.modules.items()):
         if mod is None or not name.endswith("kernels"):
