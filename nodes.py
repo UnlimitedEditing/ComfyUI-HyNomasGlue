@@ -19,7 +19,9 @@ class HyNomasScriptCompile:
 
     def run(self, script, length):
         from .autotune_patch import apply
+        from . import diagnostics
         apply()
+        diagnostics.start()
         return (compile_script(script, length),)
 
 
