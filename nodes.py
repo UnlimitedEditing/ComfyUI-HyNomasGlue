@@ -20,7 +20,9 @@ class HyNomasScriptCompile:
     def run(self, script, length):
         from .autotune_patch import apply
         from . import diagnostics
+        from .fast_attention import install as install_fast_attention
         apply()
+        install_fast_attention()
         diagnostics.start()
         return (compile_script(script, length),)
 
