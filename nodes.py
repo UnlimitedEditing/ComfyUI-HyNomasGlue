@@ -18,6 +18,8 @@ class HyNomasScriptCompile:
     CATEGORY = "Hy-Nomas"
 
     def run(self, script, length):
+        from .autotune_patch import apply
+        apply()
         return (compile_script(script, length),)
 
 
