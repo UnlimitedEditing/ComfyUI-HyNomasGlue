@@ -66,9 +66,17 @@ def compile_script(text, length=0):
     if text.startswith("{"):
         json.loads(text)  # validate only
         return text
+    original = text
+    # Graydient may deliver the prompt with its newlines collapsed (or dashes swapped), so re-insert line
+    # breaks before the header keys, the divider and each 'Ns |' segment start.
+    text = text.replace("\r", "").replace("—", "---").replace("–", "-")
+    text = re.sub(r"[ \t]*\b(?=(?:style|view|subject|scene)[ \t]*:)", "\n", text, flags=re.I)
+    text = re.sub(r"[ \t]*(?=-{3,})", "\n", text)
+    text = re.sub(r"(-{3,})[ \t]*", r"\1\n", text)
+    text = re.sub(r"[ \t]+(?=\d+(?:\.\d+)?[ \t]*s[ \t]*\|)", "\n", text, flags=re.I)
     head, segs = {}, []
     in_body = False
-    for raw in text.replace("\r", "").split("\n"):
+    for raw in text.split("\n"):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
@@ -90,7 +98,7 @@ def compile_script(text, length=0):
         change, acts = (parts[0], parts[1]) if len(parts) == 2 else ("", parts[0])
         segs.append((_snap(float(m.group(1))), change, [a.strip() for a in acts.split(";") if a.strip()]))
     if not segs:
-        raise ValueError("no segment lines (e.g. '5s | walks slowly to the left')")
+        raise ValueError("no segment lines (e.g. '5s | walks slowly to the left'); received: " + repr(original[:300]))
     for need in ("subject", "scene"):
         if not head.get(need):
             raise ValueError(f"missing header line '{need}: ...'")
