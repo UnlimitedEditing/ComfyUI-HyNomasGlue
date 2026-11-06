@@ -31,7 +31,7 @@ VIEWS = {"observer": "third-person observer", "third-person observer": "third-pe
 UNCHANGED = ("Compared to the previous segment, the visible scene, background, and other-object layout "
              "remain unchanged.")
 MIN_SEG, MAX_SEG = 1.0, 6.0
-MAX_FRAMES = 240  # 10 s at 24 fps
+MAX_FRAMES = 360  # 15 s at 24 fps (TEST: 15 s at 640x384; 10 s at 832x480 is the proven length)
 
 
 def _perspective_sentence(view, name):
