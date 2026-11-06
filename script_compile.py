@@ -31,7 +31,7 @@ VIEWS = {"observer": "third-person observer", "third-person observer": "third-pe
 UNCHANGED = ("Compared to the previous segment, the visible scene, background, and other-object layout "
              "remain unchanged.")
 MIN_SEG, MAX_SEG = 1.0, 6.0
-MAX_FRAMES = 480  # 20 s at 24 fps: measured 110 s Prompt executed on a 4090 (see gen_hynomas_world.py)
+MAX_FRAMES = 720  # TEST 30 s (20 s proven at 110 s on a 4090)
 
 
 def _perspective_sentence(view, name):
