@@ -61,12 +61,13 @@ def _sentence(t):
     return t[0].lower() + t[1:] if t else t
 
 
-def compile_script(text, length=0):
-    """length: target total frames at 24 fps (0 = whatever the script says)."""
+def compile_full(text, length=0):
+    """-> (world_json, cameras_json). length: target total frames at 24 fps (0 = whatever the script says).
+    cameras_json is a JSON list with one camera key timeline (or null) per segment."""
     text = (text or "").strip()
     if text.startswith("{"):
         json.loads(text)  # validate only
-        return text
+        return text, "[]"
     original = text
     # Graydient may deliver the prompt with its newlines collapsed (or dashes swapped), so re-insert line
     # breaks before the header keys, the divider and each 'Ns |' segment start.
@@ -94,10 +95,17 @@ def compile_script(text, length=0):
         if not m:
             raise ValueError(f"segment line must look like '5s | actions': {line!r}")
         parts = [p.strip() for p in m.group(2).split("|")]
-        if len(parts) > 2:
-            raise ValueError(f"too many '|' in segment line: {line!r}")
+        camera = None
+        for p in list(parts):
+            cm = re.match(r"^cam(?:era)?\s*:\s*(.*)$", p, re.I)
+            if cm:
+                camera = cm.group(1).strip() or None
+                parts.remove(p)
+        if not parts or len(parts) > 2:
+            raise ValueError(f"segment line needs 'Ns | actions' or 'Ns | change | actions' (+ optional "
+                             f"'| camera: W 2, D+Left 1'): {line!r}")
         change, acts = (parts[0], parts[1]) if len(parts) == 2 else ("", parts[0])
-        segs.append((_snap(float(m.group(1))), change, [a.strip() for a in acts.split(";") if a.strip()]))
+        segs.append((_snap(float(m.group(1))), change, [a.strip() for a in acts.split(";") if a.strip()], camera))
     if not segs:
         raise ValueError("no segment lines (e.g. '5s | walks slowly to the left'); received: " + repr(original[:300]))
     for need in ("subject", "scene"):
@@ -119,7 +127,7 @@ def compile_script(text, length=0):
         attr = look.rstrip(".") + ". " + _perspective_sentence(view, name)
 
     # Hard cap: only 10 s is proven to fit Graydient's ~180 s run budget (15 s / 20 s timed out in the decoder).
-    if (not length or length <= 0) and sum(d for d, _, _ in segs) * FPS > MAX_FRAMES:
+    if (not length or length <= 0) and sum(sg[0] for sg in segs) * FPS > MAX_FRAMES:
         length = MAX_FRAMES
     elif length > MAX_FRAMES:
         length = MAX_FRAMES
@@ -128,24 +136,24 @@ def compile_script(text, length=0):
     if length and length > 0:
         total = max(MIN_SEG, round(length / FPS * 2) / 2)
         out, used = [], 0.0
-        for d, ch, acts in segs:
+        for d, ch, acts, cam in segs:
             if used >= total:
                 break
             left = total - used
-            out.append((min(d, left) if left >= MIN_SEG else left, ch, acts))
+            out.append((min(d, left) if left >= MIN_SEG else left, ch, acts, cam))
             used += out[-1][0]
         while used < total - 1e-6:
             d = min(5.0, total - used)
             if d < MIN_SEG:
-                out[-1] = (out[-1][0] + d, out[-1][1], out[-1][2])
+                out[-1] = (out[-1][0] + d, out[-1][1], out[-1][2], out[-1][3])
                 used += d
                 break
-            out.append((d, "", out[-1][2][-1:] or ["continues"]))
+            out.append((d, "", out[-1][2][-1:] or ["continues"], None))
             used += d
         segs = out
 
-    segments, t = [], 0.0
-    for i, (d, change, acts) in enumerate(segs):
+    segments, cameras, t = [], [], 0.0
+    for i, (d, change, acts, cam) in enumerate(segs):
         end = t + d
         acts = acts or ["continues"]
         n = len(acts)
@@ -165,11 +173,16 @@ def compile_script(text, length=0):
             seg["description_change"] = (("Compared to the previous segment, " + _sentence(c) +
                                           ", while the rest of the scene remains unchanged.") if c else UNCHANGED)
         segments.append(seg)
+        cameras.append(cam)
         t = end
     world = {"perspective_view": view, "Style": style,
              "subject_list": [{"subject_id": "<|Subject1|>", "display_name": name, "subject_attribute": attr}],
              "segments": segments}
-    return json.dumps(world, indent=2)
+    return json.dumps(world, indent=2), json.dumps(cameras)
+
+
+def compile_script(text, length=0):
+    return compile_full(text, length)[0]
 
 
 DEFAULT_SCRIPT = """style: CG

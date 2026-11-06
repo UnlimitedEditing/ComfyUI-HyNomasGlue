@@ -123,8 +123,11 @@ def start():
         elif name.endswith("hy_nomas.loader"):
             wrapped += _wrap(mod, "load_dit", "loader.load_dit")
         elif name.endswith("hy_nomas.session"):
-            for fn in ("segment_conditioning", "extend_world"):
+            for fn in ("segment_conditioning", "extend_world", "start_world"):
                 wrapped += _wrap(mod, fn, "session." + fn)
+        elif name.endswith("hy_nomas.dcae"):
+            for fn in ("load_encoder", "encode"):
+                wrapped += _wrap(mod, fn, "dcae." + fn)
     print(f"[HyNomasGlue] timing wrappers installed on {wrapped} functions", flush=True)
     try:
         import folder_paths
